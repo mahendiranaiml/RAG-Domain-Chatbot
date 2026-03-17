@@ -11,8 +11,6 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 import os
-load_dotenv()
-hf_token = os.getenv("HF_TOKEN")
 
 
 class DataIngestor(ABC):
@@ -22,7 +20,7 @@ class DataIngestor(ABC):
     
     """
     @abstractmethod
-    def doc_loader(self, filepath : str) -> List[Document]:
+    def doc_loader(self) -> List[Document]:
         pass
 
     @abstractmethod
@@ -51,9 +49,9 @@ class DataEmbeddor(DataIngestor):
     # Creates Chunk
     def chunker(self, document : List[Document]) -> List[Document]:
         splitter = RecursiveCharacterTextSplitter(
-        separators = ["\n"],
-        chunk_size = 200,
-        chunk_overlap = 40
+        separators = ["\n\n", "\n","."," ",""],
+        chunk_size = 600,
+        chunk_overlap = 120
              )
 
         chunks = splitter.split_documents(document)
@@ -66,24 +64,27 @@ class DataEmbeddor(DataIngestor):
     # Embed Chunks into vectors then load in FAISS DB
     def embed_vectorstore(self, chunks : List[Document]) -> None:
         embeddings = HuggingFaceEmbeddings(
-
-            model_name = "all-MiniLM-L6-v2"
-        
+           model_name="all-MiniLM-L6-v2"
         )
+
         vectorstore = FAISS.from_documents(
             chunks,
             embeddings,
             distance_strategy=DistanceStrategy.COSINE
         )
+        
         vectorstore.save_local("vectorstore")
 
-# Pipe : for Loading data till Creating vector store
-def embedder(filepath : str) -> None:
+
+# Orchestrator : for Loading data till Creating vector store
+def embedde(filepath : str):
     obj = DataEmbeddor(filepath)
 
     docs = obj.doc_loader()
     chunks = obj.chunker(docs)
     obj.embed_vectorstore(chunks)
+    
+    return chunks, docs
 
 
 

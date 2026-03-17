@@ -1,76 +1,46 @@
-from langchain_classic.retrievers import ContextualCompressionRetriever
-from langchain_classic.retrievers.document_compressors import FlashrankRerank
-from langchain_classic.retrievers.multi_query import MultiQueryRetriever
-from langchain_classic.retrievers import EnsembleRetriever
-from langchain_community.retrievers import BM25Retriever
-from dotenv import load_dotenv
-import os
-from langchain_groq import ChatGroq
+from langchain_classic.chains.combine_documents import create_stuff_documents_chain
+from langchain_core.prompts import ChatPromptTemplate
 from abc import ABC, abstractmethod
-from typing import List
 
 
-
-class ChunkRetriever(ABC):
+class AnswerGenerator(ABC):
 
     @abstractmethod
-    def retriever(self, query : str) -> List:
+    def generator(self, query, final_pages_for_llm):
         pass
 
 
 
+class LLMGenerator(AnswerGenerator):
 
-class ChunkDataRetriever(ChunkRetriever):
+    def __init__(self, llm):
+        self.llm = llm
+        # 1. Setup the strict prompt
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", """Answer ONLY using the provided context below.
+                        - Be concise and factual.
+                        - If the answer is not in the context, say: 
+                        'This information is not available in the document.'
+                        - Never reference chapter numbers, page numbers, or document structure.: \n\n{context}"""),
+            ("human", "{input}"),
+        ])
 
-def __init__(self, docs, vectorstore):
+        # 2. Initialize the chain
+        self.chain = create_stuff_documents_chain(self.llm, prompt)
+        
 
-    self.docs = docs
-    self.vectorstore = vectorstore
-    # Loading .env
-    load_dotenv()
+    def generator(self, query, final_pages_for_llm):
 
-    # Getting Groq token
-    groq_token = os.getenv("GROK")
+        # 4. Generate the answer
+        response = self.chain.stream({
+            "input": query,
+            "context": final_pages_for_llm
+        })
 
-    self.llm = ChatGroq(
-        model = "llama-3.3-70b-versatile",
-        temperature = 0.77,
-        api_key = groq_token
+        return response
 
-    )
-
-    # Pipe : Hybrid Retriever
-    keyword_retriever = BM25Retriever.from_documents(self.docs)
-    keyword_retriever.k = 3
-
-    vector_retriever = self.vectorstore.as_retriever(search_kwargs = {"k":3})
-
-    self.hybrid_retriever = EnsembleRetriever(
-        retrievers = [keyword_retriever, vector_retriever],
-        weights = [0.4, 0.6]
-    )
-
-
-    def retriever(self, query) -> List:
-
-
-        # Pipe : Muliti Query Generator with hybrid search
-        advanced_retriever = MultiQueryRetriever.from_llm(
-            retriever = self.hybrid_retriever,
-            llm = self.llm
-        )
-
-        # Pipe : Final Docs after reranking
-        compressor = FlashrankRerank(top_n = 4)
-        compression_retriever = ContextualCompressionRetriever(
-            base_compressor=compressor, 
-            base_retriever=advanced_retriever
-        )
-
-        # Top 4 Chunks
-        return compression_retriever.invoke(query)
-
-def chunk_retriever(query : str, docs : List, vectorstore)-> List:
-    obj = ChunkDataRetriever(docs, vectorstore)
-    data = obj.retriever(query)
-    return data
+def generate(query, llm, final_pages_for_llm):
+    obj = LLMGenerator(llm)
+    response = obj.generator(query, final_pages_for_llm)
+    
+    return response

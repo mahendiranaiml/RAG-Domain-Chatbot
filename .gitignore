@@ -1,0 +1,31 @@
+# --- Environment / Security ---
+.env
+.venv/
+
+# --- AI / ML Specific ---
+# Large local models (avoid pushing GBs of weights)
+local_models/
+*.bin
+*.pt
+*.onnx
+*.gguf
+
+# Vector Database (local storage)
+vectorstore/
+
+# --- Python / Build ---
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+dist/
+build/
+*.egg-info/
+
+# --- Package Management ---
+notebooks/
+# --- IDE / OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
