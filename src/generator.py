@@ -1,6 +1,14 @@
 from langchain_classic.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.prompts import ChatPromptTemplate
 from abc import ABC, abstractmethod
+import yaml
+
+import logging 
+logging.basicConfig(
+    level = logging.INFO,
+    format = "%(asctime)s - %(filename)s - %(levelname)s - %(message)s - %(module)s:%(lineno)d"
+)
+logger = logging.getLogger(__name__)
 
 
 class AnswerGenerator(ABC):
@@ -19,9 +27,14 @@ class LLMGenerator(AnswerGenerator):
         prompt = ChatPromptTemplate.from_messages([
             ("system", """Answer ONLY using the provided context below.
                         - Be concise and factual.
-                        - If the answer is not in the context, say: 
+                        - If the answer is not in the context, say:
                         'This information is not available in the document.'
-                        - Never reference chapter numbers, page numbers, or document structure.: \n\n{context}"""),
+                        - Use table rows exactly when the question is about tables.
+                        - Use image text only if the context explicitly contains an image block.
+                        - Prefer the exact title or heading text when asked.
+                        - Mention page numbers when they are available in the context.
+                        Context:
+                        {context}"""),
             ("human", "{input}"),
         ])
 
@@ -32,14 +45,14 @@ class LLMGenerator(AnswerGenerator):
     def generator(self, query, final_pages_for_llm):
 
         # 4. Generate the answer
-        response = self.chain.stream({
+        response = self.chain.invoke({
             "input": query,
             "context": final_pages_for_llm
         })
-
+        logger.info("Answer Generated ")
         return response
 
-def generate(query, llm, final_pages_for_llm):
+def generate_response(query, llm, final_pages_for_llm):
     obj = LLMGenerator(llm)
     response = obj.generator(query, final_pages_for_llm)
     

@@ -1,0 +1,18 @@
+ingestor:
+    chunks:
+        chunk_size: 600
+        chunk_overlap: 120
+        separators: ["\n\n", "\n","."," ",""]
+
+
+    embeddings:
+        model_name: "all-MiniLM-L6-v2"
+        distance_strategy: "COSINE"
+
+retriever:
+    keyword_retriever_chunks_size: 4
+    vector_retriever_chunks_size: 4
+    keyword_and_vector_retriever_weights: [0.5, 0.5]
+    reranker_top_n: 5
+
+# logger    

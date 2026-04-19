@@ -1,104 +1,111 @@
-import streamlit as st
-import os
+from pathlib import Path
 from dotenv import load_dotenv
-from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain_community.vectorstores import FAISS
-from langchain_groq import ChatGroq
-from src.ingest import embedde
-from src.retriever import chunk_retrieve
-from src.generator import generate
+from fastapi import FastAPI, File, UploadFile
+from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel
+import traceback
+from src.retriever import ChunkDataRetriever
+from src.generator import generate_response
 
-load_dotenv()
+load_dotenv(".env")
 
-# --- 0. CREATE LLM ONCE ---
-llm = ChatGroq(
-    model="llama-3.3-70b-versatile",
-    temperature=0.0,
-    api_key=os.getenv("GROQ")
-)
+BASE_DIR = Path(__file__).resolve().parent
+INDEX_FILE = BASE_DIR / "index.html"
+UPLOAD_DIR = BASE_DIR / "uploads"
+UPLOAD_DIR.mkdir(exist_ok=True)
 
-# --- 1. RESOURCE LOADING (Safely) ---
-@st.cache_resource 
-def load_resources():
-    # If folder doesn't exist, return None to avoid the 'No such file' error
-    if not os.path.exists("vectorstore"):
-        return None
-    
+data = {}
+
+app = FastAPI(title="RAG Domain Chatbot")
+
+@app.get("/")
+def read_index():
+    return FileResponse(INDEX_FILE)
+
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}
+
+class ChatRequest(BaseModel):
+    message: str
+
+@app.post("/upload")
+async def upload_pdf(file: UploadFile = File(...)):
     try:
-        embeddings = HuggingFaceEmbeddings(
-            model_name="all-MiniLM-L6-v2"
+        file_path = UPLOAD_DIR / file.filename
+        contents = await file.read()
+        with open(file_path, "wb") as f:
+            f.write(contents)
+
+        data.clear()
+
+        from src.ingest import embed
+        chunks, vectorstore_path = embed(str(file_path))
+        
+        data["chunks"] = chunks
+        data["vectorstore_path"] = vectorstore_path
+        data["retriever"] = ChunkDataRetriever(
+            chunks=data["chunks"],
+            vectorstore_path=data["vectorstore_path"]
         )
-        vectorstore = FAISS.load_local(
-            "vectorstore", 
-            embeddings, 
-            allow_dangerous_deserialization=True
+
+        pages_with_tables = sorted(
+            {
+                chunk.metadata.get("page_number")
+                for chunk in chunks
+                if chunk.metadata.get("has_tables")
+            }
         )
-        return vectorstore
-    except Exception:
-        return None
+        pages_with_images = sorted(
+            {
+                chunk.metadata.get("page_number")
+                for chunk in chunks
+                if chunk.metadata.get("has_images")
+            }
+        )
 
-# --- 2. UI LAYOUT ---
-st.set_page_config(page_title="PDF AI Assistant", layout="wide")
-st.title("🚀 Advanced RAG Chatbot")
+        return {
+            "message": f"File uploaded completely! Processed {len(chunks)} chunks.",
+            "num_chunks": len(chunks),
+            "pages_with_tables": pages_with_tables,
+            "pages_with_images": pages_with_images,
+            "document_name": file.filename,
+        }
+    except Exception as e:
+        error_details = traceback.format_exc()
+        print(error_details)
+        return JSONResponse(
+            status_code=500,
+            content={"message": f"Server Error: {str(e)}", "detail": error_details}
+        )
 
-# Sidebar for Ingestion
-with st.sidebar:
-    st.header("Upload Document")
-    uploaded_file = st.file_uploader("Choose a PDF file", type="pdf")
-    
-    if st.button("Process & Ingest"):
-        if uploaded_file is not None:
-            with st.spinner("Processing PDF..."):
-                # Ensure docs folder exists
-                if not os.path.exists("docs"):
-                    os.makedirs("docs")
-                    
-                file_path = os.path.join("docs", uploaded_file.name)
-                with open(file_path, "wb") as f:
-                    f.write(uploaded_file.getbuffer())
-                
-                # Create the vectorstore and load chunks and docs
-                
-                chunks, docs = embedde(file_path)
-                
-                # Persist chunks and docs in session_state so they survive reruns
-                st.session_state["chunks"] = chunks
-                st.session_state["docs"] = docs
-                
-                st.success("Ingestion complete!")
-                st.cache_resource.clear() # Reset cache to load new data
-                st.rerun() # Refresh the app
-        else:
-            st.error("Please upload a file.")
+@app.post("/chat")
+async def chat(request: ChatRequest):
+    try:
+        question = request.message.strip()
 
-# --- 3. CHAT LOGIC ---
-vectorstore = load_resources()
+        if not question:
+            return JSONResponse(
+                status_code=400,
+                content={"message": "Question cannot be empty."}
+            )
 
-if vectorstore is None:
-    st.info("👈 Please upload a PDF and click 'Process' in the sidebar to start.")
-else:
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
+        if "chunks" not in data or "vectorstore_path" not in data:
+            return JSONResponse(
+                status_code=400,
+                content={"message": "Please upload and process a PDF first."}
+            )
 
-    # Display History
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+        reranked_docs = data["retriever"].retriever(question)
+        final_pages_for_llm = data["retriever"].final_pages_to_llm(reranked_docs)
+        answer = generate_response(question, data["retriever"].llm, final_pages_for_llm)
 
-    # Chat Input
-    if query := st.chat_input("Ask about your document..."):
-        st.session_state.messages.append({"role": "user", "content": query})
-        with st.chat_message("user"):
-            st.markdown(query)
+        return {"answer": answer}
 
-        with st.spinner("Analyzing..."):
-            # 1. RETRIEVE — use docs and chunks from session_state
-            docs = st.session_state.get("docs", [])
-            chunks = st.session_state.get("chunks", [])
-            final_pages_for_llm = chunk_retrieve(query, docs, vectorstore, chunks, llm)
-
-            # 2. GENERATE
-            with st.chat_message("assistant"):
-                response = generate(query, llm, final_pages_for_llm)
-                st.markdown(response)
-                st.session_state.messages.append({"role": "assistant", "content": response})
+    except Exception as e:
+        error_details = traceback.format_exc()
+        print(error_details)
+        return JSONResponse(
+            status_code=500,
+            content={"message": f"Server Error: {str(e)}", "detail": error_details}
+        )
