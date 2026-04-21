@@ -167,185 +167,35 @@
             cursor: not-allowed;
         }
 
-        .upload-area {
-            width: 100%;
-            max-width: 720px;
-            margin-bottom: 16px;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            flex-wrap: wrap;
-        }
-
-        .upload-label {
-            flex: 1;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 12px 16px;
-            background: #1a1a1a;
-            border: 1px dashed #333;
-            border-radius: 10px;
-            cursor: pointer;
-            font-size: 0.85rem;
-            color: #888;
-            transition: border-color 0.2s ease;
-        }
-
-        .upload-label:hover {
-            border-color: #6366f1;
-            color: #aaa;
-        }
-
-        .upload-icon {
-            font-size: 1rem;
-            font-weight: 700;
-        }
-
-        #uploadBtn {
-            background: linear-gradient(135deg, #6366f1, #a78bfa);
-            border: none;
-            border-radius: 10px;
-            padding: 12px 20px;
-            color: #fff;
-            font-family: 'Inter', sans-serif;
-            font-size: 0.85rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: transform 0.15s ease, box-shadow 0.2s ease;
-        }
-
-        #uploadBtn:hover:not(:disabled) {
-            transform: scale(1.03);
-            box-shadow: 0 4px 20px rgba(99, 102, 241, 0.35);
-        }
-
-        #uploadBtn:disabled {
-            opacity: 0.4;
-            cursor: not-allowed;
-        }
-
-        .upload-status {
-            width: 100%;
-            font-size: 0.8rem;
-            margin-top: 4px;
-            min-height: 1.2em;
-            color: #bdbdbd;
-        }
-
         .message.typing {
             opacity: 0.6;
             font-style: italic;
         }
-
-        .document-summary {
-            width: 100%;
-            max-width: 720px;
-            margin-bottom: 12px;
-            background: #101010;
-            border: 1px solid #232323;
-            border-radius: 12px;
-            padding: 12px 14px;
-            display: none;
-        }
-
-        .document-summary h2 {
-            font-size: 0.95rem;
-            margin-bottom: 8px;
-            color: #f2f2f2;
-        }
-
-        .document-summary p {
-            font-size: 0.82rem;
-            color: #a7a7a7;
-            line-height: 1.5;
-        }
     </style>
 </head>
 <body>
-
-    <h1>Advanced AI RAG Chatbot</h1>
-
-    <div class="upload-area" id="uploadArea">
-        <label for="pdfFile" class="upload-label">
-            <span class="upload-icon">PDF</span>
-
-            <span id="uploadText">Click to upload a PDF</span> <!--where the file name will appear after selecting the file-->
-
-        </label>
-        <input type="file" id="pdfFile" accept=".pdf" hidden onchange="updateFileName()"> <!--From here the file name will appear after selecting the file-->
-
-
-<!-- ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ -->
-
-
-        <button id="uploadBtn" onclick="uploadPDF()">Upload & Process</button> <!--After clicking this button the file will be uploaded and processed-->
-        <p id = "uploadStatus"></p>
-    </div>
-    <div class="document-summary" id="documentSummary">
-        <h2 id="documentTitle">Document ready</h2>
-        <p id="documentMeta"></p>
-    </div>
-
-<!-- --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- -->
+    <h1>RAG Domain Chatbot</h1>
 
     <div class="chat-container" id="chatContainer">
         <div class="chat-messages" id="chatMessages">
-            <p class="welcome-text">Upload a PDF first, then ask any question about it.</p>
+            <p class="welcome-text">Ask questions from the indexed document.</p>
         </div>
 
         <div class="chat-input-area">
-            <input type="text" id="userInput" placeholder="Type your question here..." autocomplete="off" disabled>
-            <button id="sendBtn" onclick="sendMessage()" disabled>Send</button>
+            <input type="text" id="userInput" placeholder="Type your question here..." autocomplete="off">
+            <button id="sendBtn" onclick="sendMessage()">Send</button>
         </div>
     </div>
-
 <script>
-    // Cached DOM elements
-    const fileInput = document.getElementById("pdfFile");
-    const textSpan = document.getElementById("uploadText");
-    const uploadBtn = document.getElementById("uploadBtn");
-    const statusText = document.getElementById("uploadStatus");
     const chatMessages = document.getElementById("chatMessages");
     const userInput = document.getElementById("userInput");
     const sendBtn = document.getElementById("sendBtn");
-    const documentSummary = document.getElementById("documentSummary");
-    const documentTitle = document.getElementById("documentTitle");
-    const documentMeta = document.getElementById("documentMeta");
 
-    function updateFileName() {
-        textSpan.textContent = fileInput.files.length > 0 ? fileInput.files[0].name : "Click to upload a PDF";
-    }
-
-    async function uploadPDF() {
-        if (!fileInput.files[0]) return alert("Please upload a file first");
-
-        uploadBtn.disabled = true;
-        uploadBtn.textContent = "Processing...";
-        statusText.textContent = "Uploading...";
-
-        const formData = new FormData();
-        formData.append("file", fileInput.files[0]);
-
+    async function readJson(response) {
         try {
-            const response = await fetch("/upload", { method: "POST", body: formData });
-            const data = await response.json();
-
-            if (!response.ok) throw new Error(data.message || "Upload failed");
-
-            statusText.textContent = data.message || "Upload successful!";
-            uploadBtn.textContent = "Upload & Process";
-            uploadBtn.disabled = false;
-            documentSummary.style.display = "block";
-            documentTitle.textContent = data.document_name || "Document ready";
-            documentMeta.textContent = `Chunks: ${data.num_chunks} | Table pages: ${formatPages(data.pages_with_tables)} | Image pages: ${formatPages(data.pages_with_images)}`;
-            
-            userInput.disabled = sendBtn.disabled = false;
-            userInput.focus();
-        } catch (error) {
-            statusText.textContent = "Error: " + error.message;
-            uploadBtn.textContent = "Upload & Process";
-            uploadBtn.disabled = false;
+            return await response.json();
+        } catch {
+            return { message: response.statusText || "Server returned an invalid response" };
         }
     }
 
@@ -359,10 +209,6 @@
         chatMessages.appendChild(msgDiv);
         chatMessages.scrollTop = chatMessages.scrollHeight;
         return msgDiv;
-    }
-
-    function formatPages(pages) {
-        return Array.isArray(pages) && pages.length ? pages.join(", ") : "none";
     }
 
     async function sendMessage() {
@@ -382,7 +228,7 @@
                 body: JSON.stringify({ message })
             });
 
-            const data = await response.json();
+            const data = await readJson(response);
             if (!response.ok) throw new Error(data.message || "Something went wrong");
 
             typingMsg.remove();

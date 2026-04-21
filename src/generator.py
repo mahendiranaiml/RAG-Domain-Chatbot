@@ -27,6 +27,7 @@ class LLMGenerator(AnswerGenerator):
         prompt = ChatPromptTemplate.from_messages([
             ("system", """Answer ONLY using the provided context below.
                         - Be concise and factual.
+                        - You may give structred answer with respect to the context.
                         - If the answer is not in the context, say:
                         'This information is not available in the document.'
                         - Use table rows exactly when the question is about tables.

@@ -22,4 +22,5 @@ dependencies = [
     "torch>=2.7.0",
     "uvicorn>=0.42.0",
     "fastapi>=0.135.3",
+    "magika>=1.0.2",
 ]

@@ -2,6 +2,8 @@ from langchain_classic.retrievers import ContextualCompressionRetriever
 from langchain_classic.retrievers.document_compressors import FlashrankRerank
 import os
 import torch
+import pickle
+from pathlib import Path
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_classic.retrievers.multi_query import MultiQueryRetriever
@@ -11,7 +13,6 @@ from abc import ABC, abstractmethod
 from typing import List
 from langchain_core.prompts import PromptTemplate
 from langchain_groq import ChatGroq
-import os
 import yaml
 import logging
 from dotenv import load_dotenv
@@ -44,7 +45,21 @@ class ChunkRetriever(ABC):
 
 class ChunkDataRetriever(ChunkRetriever):
 
-    def __init__(self, chunks, vectorstore_path: str):
+    def __init__(self, chunks=None, vectorstore_path=None):
+        if chunks is None:
+            chunk_files = list(Path("cache/chunks").glob("*.pkl"))
+            if not chunk_files:
+                raise FileNotFoundError("No cached chunks found. Run DataEmbeddor first.")
+            chunk_path = max(chunk_files, key=lambda path: path.stat().st_mtime)
+            with chunk_path.open("rb") as ch:
+                chunks = pickle.load(ch)
+
+        if vectorstore_path is None:
+            vectorstore_dir = Path("cache/vectorstore")
+            vectorstore_paths = [path for path in vectorstore_dir.iterdir() if path.is_dir()] if vectorstore_dir.exists() else []
+            if not vectorstore_paths:
+                raise FileNotFoundError("No cached vectorstore found. Run DataEmbeddor first.")
+            vectorstore_path = max(vectorstore_paths, key=lambda path: path.stat().st_mtime)
 
         self.chunks = chunks
         self.llm = ChatGroq(
@@ -63,7 +78,7 @@ class ChunkDataRetriever(ChunkRetriever):
         )
         
         # Load the local vectorstore that was created during ingestion
-        self.vectorstore = FAISS.load_local(vectorstore_path, embedding_model, allow_dangerous_deserialization=True)
+        self.vectorstore = FAISS.load_local(str(vectorstore_path), embedding_model, allow_dangerous_deserialization=True)
 
         # Pipe : Hybrid Retriever
         keyword_retriever = BM25Retriever.from_documents(self.chunks)
